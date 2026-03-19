@@ -196,7 +196,9 @@ namespace CompositeAdapterFacade_v2.Models
 <a id='programcs'></a>
 
 ```csharp
-﻿using CompositeAdapterFacade_v2.Models;
+﻿using System;
+using System.IO;
+using CompositeAdapterFacade_v2.Models;
 using CompositeAdapterFacade_v2.Services;
 
 namespace CompositeAdapterFacade_v2
@@ -205,64 +207,142 @@ namespace CompositeAdapterFacade_v2
     {
         static void Main(string[] args)
         {
-            // Создаём структуру
+            Console.WriteLine("Паттерн Composite: создание иерархии файловой системы");
+
             FolderItem root = new FolderItem("Root");
             root.Add(new FileItem("file1.txt", 100));
+            root.Add(new FileItem("image.png", 250));
+
             FolderItem docs = new FolderItem("Docs");
             docs.Add(new FileItem("report.pdf", 500));
+            docs.Add(new FileItem("notes.txt", 75));
+
+            FolderItem work = new FolderItem("Work");
+            work.Add(new FileItem("project.doc", 1200));
+            docs.Add(work);
+
             root.Add(docs);
 
-            // Создаём адаптер
-            IFileSystem fs = new FileSystemAdapter(root);
+            Console.WriteLine($"Размер корневой директории: {root.GetSize()} байт\n");
 
-            // Тестируем методы
-            Console.WriteLine("Содержимое корня: " + string.Join(", ", fs.ListItems("Root")));
-            // Вывод: file1.txt, Docs
 
-            byte[] data = fs.ReadFile("Root/Docs/report.pdf");
-            Console.WriteLine($"Прочитано {data.Length} байт");
+            Console.WriteLine("Паттерн Adapter: работа через интерфейс IFileSystem");
 
-            fs.WriteFile("Root/Docs/new.txt", new byte[200]);
-            Console.WriteLine("Содержимое Docs после записи: " + string.Join(", ", fs.ListItems("Root/Docs")));
-            // Вывод: report.pdf, new.txt
+            IFileSystem fileSystem = new FileSystemAdapter(root);
 
-            fs.DeleteItem("Root/file1.txt");
-            Console.WriteLine("Содержимое корня после удаления: " + string.Join(", ", fs.ListItems("Root")));
-            // Вывод: Docs
+            try
+            {
+                var items = fileSystem.ListItems("Root");
+                Console.WriteLine($"Содержимое корня: {string.Join(", ", items)}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка ListItems: {ex.Message}");
+            }
 
-            Console.WriteLine("=== Демонстрация паттерна Facade ===\n");
+            try
+            {
+                byte[] data = fileSystem.ReadFile("Root/Docs/report.pdf");
+                Console.WriteLine($"Прочитано: {data.Length} байт");
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.WriteLine($"Ошибка ReadFile: {ex.Message}");
+            }
 
-            // 1. Создаём структуры Composite (источник и цель)
+            try
+            {
+                fileSystem.WriteFile("Root/Docs/new.txt", new byte[200]);
+                var updated = fileSystem.ListItems("Root/Docs");
+                Console.WriteLine($"После записи: {string.Join(", ", updated)}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка WriteFile: {ex.Message}");
+            }
+
+            try
+            {
+                fileSystem.DeleteItem("Root/file1.txt");
+                var afterDelete = fileSystem.ListItems("Root");
+                Console.WriteLine($"После удаления: {string.Join(", ", afterDelete)}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка DeleteItem: {ex.Message}");
+            }
+
+            Console.WriteLine();
+
+            Console.WriteLine("Паттерн Facade: высокоуровневые операции");
+
             var localRoot = new FolderItem("Local");
             localRoot.Add(new FileItem("notes.txt", 200));
-            var subFolder = new FolderItem("Work");
-            subFolder.Add(new FileItem("report.doc", 1500));
-            localRoot.Add(subFolder);
 
-            var cloudRoot = new FolderItem("Cloud"); // пустое облако
+            var workFolder = new FolderItem("Work");
+            workFolder.Add(new FileItem("report.doc", 1500));
 
-            // 2. Создаём адаптеры (преобразуют Composite → IFileSystem)
-            IFileSystem localFS = new FileSystemAdapter(localRoot);
-            IFileSystem cloudFS = new FileSystemAdapter(cloudRoot);
+            var notesSub = new FolderItem("Notes");
+            notesSub.Add(new FileItem("todo.txt", 50));
+            workFolder.Add(notesSub);
 
-            // 3. Создаём фасад и выполняем операции
-            var facade = new SyncFacade(localFS, cloudFS);
+            localRoot.Add(workFolder);
 
-            // Синхронизация
-            facade.SyncFolder("Local", "Cloud");
-
-            // Проверяем результат: размер облака должен стать таким же, как у локальной
-            Console.WriteLine($"\nРазмер локальной: {localRoot.GetSize()} байт");
-            Console.WriteLine($"Размер облачной:  {cloudRoot.GetSize()} байт");
-
-            // Резервное копирование (в другую "папку")
+            var cloudRoot = new FolderItem("Cloud");
             var backupRoot = new FolderItem("Backup");
-            IFileSystem backupFS = new FileSystemAdapter(backupRoot);
-            var backupFacade = new SyncFacade(localFS, backupFS);
 
-            backupFacade.Backup("Local", "Backup");
+            IFileSystem localFileSystem = new FileSystemAdapter(localRoot);
+            IFileSystem cloudFileSystem = new FileSystemAdapter(cloudRoot);
+            IFileSystem backupFileSystem = new FileSystemAdapter(backupRoot);
+
+            var facade = new SyncFacade(localFileSystem, cloudFileSystem);
+
+            Console.WriteLine("Синхронизация: Local -> Cloud");
+            try
+            {
+                facade.SyncFolder("Local", "Cloud");
+                Console.WriteLine($"Размер Cloud: {cloudRoot.GetSize()} байт");
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.WriteLine($"Файл не найден: {ex.Message}");
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                Console.WriteLine($"Папка не найдена: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка синхронизации: {ex.Message}");
+            }
+
+            facade = new SyncFacade(localFileSystem, backupFileSystem);
+
+            Console.WriteLine("Резервное копирование: Local -> Backup");
+            try
+            {
+                facade.Backup("Local", "Backup");
+                Console.WriteLine($"Размер Backup: {backupRoot.GetSize()} байт");
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.WriteLine($"Файл не найден: {ex.Message}");
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                Console.WriteLine($"Папка не найдена: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка бэкапа: {ex.Message}");
+            }
+
+            // Итог
+            Console.WriteLine($"\nИтоговые размеры:");
+            Console.WriteLine($"Local:  {localRoot.GetSize()} байт");
+            Console.WriteLine($"Cloud:  {cloudRoot.GetSize()} байт");
+            Console.WriteLine($"Backup: {backupRoot.GetSize()} байт");
         }
-    
     }
 }
 ```
@@ -276,7 +356,7 @@ namespace CompositeAdapterFacade_v2
 ```csharp
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Linq;
 using CompositeAdapterFacade_v2.Models;
 
 namespace CompositeAdapterFacade_v2.Services
@@ -296,9 +376,7 @@ namespace CompositeAdapterFacade_v2.Services
                 return _root;
 
             var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-
             FileSystemItem? current = _root;
-
             int startIndex = (parts.Length > 0 && parts[0] == _root.Name) ? 1 : 0;
 
             for (int i = startIndex; i < parts.Length; i++)
@@ -307,6 +385,35 @@ namespace CompositeAdapterFacade_v2.Services
                 {
                     current = folder.GetChildren().FirstOrDefault(c => c.Name == parts[i]);
                     if (current == null) return null;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            return current;
+        }
+
+        private FileSystemItem? FindOrCreatePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || path == _root.Name)
+                return _root;
+
+            var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            FileSystemItem? current = _root;
+            int startIndex = (parts.Length > 0 && parts[0] == _root.Name) ? 1 : 0;
+
+            for (int i = startIndex; i < parts.Length; i++)
+            {
+                if (current is FolderItem folder)
+                {
+                    var child = folder.GetChildren().FirstOrDefault(c => c.Name == parts[i]);
+                    if (child == null)
+                    {
+                        child = new FolderItem(parts[i]);
+                        folder.Add(child);
+                    }
+                    current = child;
                 }
                 else
                 {
@@ -336,7 +443,6 @@ namespace CompositeAdapterFacade_v2.Services
             var item = FindByPath(path);
             if (item is FileItem file)
             {
-                Console.WriteLine($"[Adapter] Чтение файла: {path}");
                 return new byte[file.Size];
             }
             throw new FileNotFoundException($"Файл не найден: {path}");
@@ -346,15 +452,11 @@ namespace CompositeAdapterFacade_v2.Services
         {
             var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2)
-            {
-                Console.WriteLine("[Adapter] Невалидный путь для записи");
-                return;
-            }
+                throw new ArgumentException($"Невалидный путь: {path}");
 
             string fileName = parts[^1];
             string dirPath = string.Join("/", parts.Take(parts.Length - 1));
-
-            var parent = FindByPath(dirPath);
+            var parent = FindOrCreatePath(dirPath);
 
             if (parent is FolderItem folder)
             {
@@ -362,17 +464,15 @@ namespace CompositeAdapterFacade_v2.Services
                 if (existing is FileItem existingFile)
                 {
                     existingFile.Size = data.Length;
-                    Console.WriteLine($"[Adapter] Обновлён файл: {path}");
                 }
                 else
                 {
                     folder.Add(new FileItem(fileName, data.Length));
-                    Console.WriteLine($"[Adapter] Создан файл: {path}");
                 }
             }
             else
             {
-                Console.WriteLine($"[Adapter] Папка не найдена: {dirPath}");
+                throw new DirectoryNotFoundException($"Папка не найдена: {dirPath}");
             }
         }
 
@@ -380,25 +480,13 @@ namespace CompositeAdapterFacade_v2.Services
         {
             var item = FindByPath(path);
             if (item == null)
-            {
-                Console.WriteLine($"[Adapter] Элемент не найден для удаления: {path}");
-                return;
-            }
+                throw new FileNotFoundException($"Элемент не найден: {path}");
 
             if (item == _root)
-            {
-                Console.WriteLine("[Adapter] Нельзя удалить корневой элемент");
-                return;
-            }
+                throw new InvalidOperationException("Нельзя удалить корневой элемент");
 
-            if (RemoveFromParent(_root, item))
-            {
-                Console.WriteLine($"[Adapter] Удалено: {path}");
-            }
-            else
-            {
-                Console.WriteLine($"[Adapter] Не удалось удалить: {path}");
-            }
+            if (!RemoveFromParent(_root, item))
+                throw new InvalidOperationException($"Не удалось удалить: {path}");
         }
 
         private bool RemoveFromParent(FileSystemItem current, FileSystemItem target)
@@ -431,65 +519,45 @@ namespace CompositeAdapterFacade_v2.Services
 ```csharp
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
 using CompositeAdapterFacade_v2.Models;
 
 namespace CompositeAdapterFacade_v2.Services
 {
     public class SyncFacade
     {
-        private IFileSystem? _sourceFileSystem;
-        private IFileSystem? _destinationFileSystem;
+        private IFileSystem _sourceFS;
+        private IFileSystem _targetFS;
 
-        public SyncFacade(IFileSystem? sourceFileSystem, IFileSystem? destinationFileSystem)
+        public SyncFacade(IFileSystem source, IFileSystem target)
         {
-            _sourceFileSystem = sourceFileSystem;
-            _destinationFileSystem = destinationFileSystem;
+            _sourceFS = source;
+            _targetFS = target;
         }
 
-        public void SyncFolder(string sourcePath, string destinationPath)
+        public void SyncFolder(string sourcePath, string targetPath)
         {
-            Console.WriteLine($"[FACADE] Начало синхронизации: {sourcePath} -> {destinationPath}");
+            var items = _sourceFS.ListItems(sourcePath);
 
-            var items = _sourceFileSystem.ListItems(sourcePath);
-
-            foreach (var item in items)
+            foreach (var itemName in items)
             {
-                string sourceItemPath = $"{sourcePath}/{item}";
-                string destinationItemPath = $"{destinationPath}/{item}";
+                string sourceItemPath = $"{sourcePath}/{itemName}";
+                string targetItemPath = $"{targetPath}/{itemName}";
 
                 try
                 {
-                    byte[] data = _sourceFileSystem.ReadFile(sourceItemPath);
-                    _destinationFileSystem.WriteFile(destinationItemPath, data);
-                    Console.WriteLine($"Файл {item} синхронизирован");
+                    byte[] data = _sourceFS.ReadFile(sourceItemPath);
+                    _targetFS.WriteFile(targetItemPath, data);
                 }
-                catch(FileNotFoundException)
+                catch (FileNotFoundException)
                 {
-                    SyncFolder(sourceItemPath, destinationItemPath);
+                    SyncFolder(sourceItemPath, targetItemPath);
                 }
             }
-
-            Console.WriteLine($"[FACADE] Синхронизация выполнена");
         }
 
         public void Backup(string sourcePath, string backupPath)
         {
-            Console.WriteLine($"[FACADE] Начало резервного копирования {sourcePath} -> {backupPath}");
-
-            try
-            {
-                SyncFolder(sourcePath, backupPath);
-                Console.WriteLine("[FACADE] Копирование завершено успешно");
-            }
-            catch (FileNotFoundException ex)
-            {
-                Console.WriteLine($"[FACADE] Файл не найден: {ex.Message}");
-            }
-            catch (Exception ex) 
-            {
-                Console.WriteLine($"[FACADE] Неизвестная ошибка: {ex.Message}");
-            }
+            SyncFolder(sourcePath, backupPath);
         }
     }
 }
